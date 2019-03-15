@@ -1,8 +1,7 @@
 #include <stdio.h> // printf
 #include <stdint.h> // uint32_t and uint64_t
 #include <mem.h> // strlen
-#include <unistd.h> // atoi
-#include <stdlib.h>
+#include <stdlib.h> // malloc
 
 typedef int8_t word8;
 typedef uint32_t word32;
@@ -25,6 +24,7 @@ word32 ch(word32 x, word32 y, word32 z);
 word32 maj(word32 x, word32 y, word32 z);
 
 #define WORDS32_IN_BLOCK 16
+#define WORDS8_IN_BLOCK 64
 #define WORDS32_IN_WORD64 2
 #define WORDS8_IN_WORD32 (sizeof(word32) / sizeof(word8))
 
@@ -35,6 +35,10 @@ word32 maj(word32 x, word32 y, word32 z);
 #define BITS_IN_WORD64 64
 #define BITS_IN_BLOCK 512
 
+typedef word32 hash[WORDS32_IN_M_BLOCK];
+typedef word32 block[WORDS32_IN_BLOCK];
+typedef word64 max_bits_in_message;
+
 /**
  * ASCII hashing
  */
@@ -42,72 +46,51 @@ int main() {
     /*
      * preprocessing
      */
-    word8 message[] = {"abca"};
-    word64 nrof_words8 = strlen(message);
-    printf("nrof_words8: %llu\n", nrof_words8);
-    word64 nrof_words32 = nrof_words8 / (sizeof(word32) / sizeof(word8));
-    printf("nrof_words32: %llu\n", nrof_words32);
+    const char *message = "wuck ferner";
 
-    // l is nrof_bits
-    word64 l = nrof_words8 * BITS_IN_WORD8;
-    printf("l: %llu\n", l);
-
-    word64 k = ((BITS_IN_BLOCK - BITS_IN_WORD64) - ((l + 1) % BITS_IN_BLOCK)) % BITS_IN_BLOCK;
-    printf("k: %llu\n", k);
-
-    word64 nrof_bits = l + k + 1 + BITS_IN_WORD64;
-    printf("nrof_bits: %llu\n", nrof_bits);
-
-    if (nrof_bits % BITS_IN_BLOCK != 0) {
-        printf("something is wrong!\n");
+    // add 0b1000 to data
+    word32 nrof_words8 = strlen(message);
+    printf("nrof_words8: %u\n\n", nrof_words8);
+    uint8_t *data = (uint8_t *) malloc(nrof_words8 + 1);
+    for (int i = 0; i < nrof_words8; i++) {
+        data[i] = (uint8_t) message[i];
     }
+    data[nrof_words8] = 0x80;
 
-    word64 nrof_blocks = nrof_bits / BITS_IN_BLOCK;
-    printf("nrof_blocks: %llu\n", nrof_blocks);
+    // nrof_words8 includes the padded 0b10000000
+    nrof_words8 = nrof_words8 + 1;
+
+    word64 nrof_blocks = (nrof_words8 * BITS_IN_WORD8 + BITS_IN_WORD64 - 1) / BITS_IN_BLOCK + 1;
+    printf("nrof_blocks: %llu\n\n", nrof_blocks);
 
     // for all bits
-//    word32 words[nrof_blocks * WORDS32_IN_BLOCK];
-    word32 blocks[nrof_blocks][WORDS32_IN_BLOCK];
-    word32 current_word8 = 0;
+    block blocks[nrof_blocks];
+
     for (word32 i = 0; i < nrof_blocks; i++) {
-        word32 words_in_this_block = WORDS32_IN_BLOCK;
-        if (i == nrof_blocks - 1) {
-            // last block
-            words_in_this_block = words_in_this_block - WORDS32_IN_WORD64;
-        }
-
-        for (word32 n = 0; n < words_in_this_block; n++) {
-            word32 word = 0;
-            if (current_word8 < nrof_words8) {
-                for (word32 j = 0; j < WORDS8_IN_WORD32; j++) {
-                    word32 temp;
-                    temp = ((word32) message[i * WORDS8_IN_WORD32 + j]) << (BITS_IN_WORD8 * (WORDS8_IN_WORD32 - j - 1));
-//                    printf("%u\n", temp);
-                    printf("%08x\n", message[i * WORDS8_IN_WORD32 + j]);
-                    word |= temp;
-                    current_word8 = current_word8 + 1;
+        for (word32 j = 0; j < WORDS32_IN_BLOCK; j++) {
+            blocks[i][j] = 0;
+            for (word32 k = 0; k < WORDS8_IN_WORD32; k++) {
+                word32 word8_index = i * WORDS8_IN_BLOCK + j * WORDS8_IN_WORD32 + k;
+                if (word8_index < nrof_words8) {
+                    word32 value = data[word8_index];
+                    word32 temp = (((word32) value) << (BITS_IN_WORD8 * (WORDS8_IN_WORD32 - k - 1)));
+                    blocks[i][j] = blocks[i][j] | temp;
                 }
-            } else if (current_word8 >= nrof_words8 && current_word8 < nrof_words8 + WORDS8_IN_WORD32) {
-                word = (word32) (1 << (BITS_IN_WORD32 - 1)); // l can be short tho
-                current_word8 = current_word8 + WORDS8_IN_WORD32;
             }
-            blocks[i][n] = word;
-        }
-
-        if (i == nrof_blocks - 1) {
-            // last block
-            blocks[i][WORDS32_IN_BLOCK - 2] = (word32) (l >> BITS_IN_WORD32);
-            blocks[i][WORDS32_IN_BLOCK - 1] = (word32) l;
         }
     }
+
+    blocks[nrof_blocks - 1][WORDS32_IN_BLOCK - 2] = (word32) (((word64) ((nrof_words8 - 1) * BITS_IN_WORD8))
+            >> BITS_IN_WORD32);
+    blocks[nrof_blocks - 1][WORDS32_IN_BLOCK - 1] = (word32) ((nrof_words8 - 1) * BITS_IN_WORD8);
 
     // prints blocks
     for (word32 i = 0; i < nrof_blocks; i++) {
-        printf("preprocessed hexadecimal (%d):\n", i);
+        printf("preprocessed hexadecimal improvement (%d):\n", i);
         for (word32 n = 0; n < WORDS32_IN_BLOCK; n++) {
             printf("%08x ", blocks[i][n]);
+            if ((n + 1) % (WORDS32_IN_BLOCK / 2) == 0) printf("\n");
         }
-        printf("\n");
     }
 
     /*
@@ -160,9 +143,6 @@ int main() {
         for (word32 i = WORDS32_IN_BLOCK; i < WORDS32_IN_M_BLOCK; i++) {
             W[i] = sigma_1(W[i - 2]) + W[i - 7] + sigma_0(W[i - 15]) + W[i - 16];
         }
-        for (int x = 0; x < 64; x++) {
-            printf("%08x", W[x]);
-        }
         printf("\n");
         // 64 rounds
         a = h_0;
@@ -195,19 +175,19 @@ int main() {
         h_5 = h_5 + f;
         h_6 = h_6 + g;
         h_7 = h_7 + h;
-
-        // print hash
-        printf("processed hexadecimal (%d):\n", t);
-        printf("%08x ", h_0);
-        printf("%08x ", h_1);
-        printf("%08x ", h_2);
-        printf("%08x ", h_3);
-        printf("%08x ", h_4);
-        printf("%08x ", h_5);
-        printf("%08x ", h_6);
-        printf("%08x ", h_7);
-        printf("\n");
     }
+
+    // print hash
+    printf("processed hexadecimal:\n");
+    printf("%08x ", h_0);
+    printf("%08x ", h_1);
+    printf("%08x ", h_2);
+    printf("%08x ", h_3);
+    printf("%08x ", h_4);
+    printf("%08x ", h_5);
+    printf("%08x ", h_6);
+    printf("%08x ", h_7);
+    printf("\n");
 
     return 0;
 }
