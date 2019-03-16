@@ -3,9 +3,29 @@
 #include <mem.h> // strlen
 #include <stdlib.h> // malloc
 
-typedef int8_t word8;
+#define WORDS8_IN_WORD32 4
+
+#define WORDS32_IN_M_BLOCK 64
+
+#define BITS_IN_WORD8 8
+#define BITS_IN_WORD32 32
+#define BITS_IN_WORD64 64
+
+#define WORDS8_IN_BLOCK 64
+#define WORDS32_IN_BLOCK 16
+#define BITS_IN_BLOCK 512
+
+// first ascii character to try
+#define ASCII_VALUES_START 33
+#define NROF_ASCII_VALUES 128
+
+//#define DEBUG 0
+
+typedef uint8_t word8;
 typedef uint32_t word32;
 typedef uint64_t word64;
+
+typedef word32 block[WORDS32_IN_BLOCK];
 
 word32 rotr(word32 x, word32 n);
 
@@ -23,47 +43,60 @@ word32 ch(word32 x, word32 y, word32 z);
 
 word32 maj(word32 x, word32 y, word32 z);
 
-#define WORDS32_IN_BLOCK 16
-#define WORDS8_IN_BLOCK 64
-#define WORDS32_IN_WORD64 2
-#define WORDS8_IN_WORD32 (sizeof(word32) / sizeof(word8))
-
-#define WORDS32_IN_M_BLOCK 64
-
-#define BITS_IN_WORD8 8
-#define BITS_IN_WORD32 32
-#define BITS_IN_WORD64 64
-#define BITS_IN_BLOCK 512
-
-typedef word32 hash[WORDS32_IN_M_BLOCK];
-typedef word32 block[WORDS32_IN_BLOCK];
-typedef word64 max_bits_in_message;
+/**
+ * Find all strings up to a certain max_length.
+ */
+void find_all_strings(const word32 MAX_LEN, const word32 *secret);
 
 /**
- * ASCII hashing
+ * Finds all permutations of a string of a fixed length.
  */
-int main() {
-    /*
-     * preprocessing
-     */
-    const char *message = "wuck ferner";
+void find_string(word32 index, const word32 MAX_LEN, word8 *data, const word32 *secret, word32 *done);
 
-    // add 0b1000 to data
-    word32 nrof_words8 = strlen(message);
-    printf("nrof_words8: %u\n\n", nrof_words8);
-    uint8_t *data = (uint8_t *) malloc(nrof_words8 + 1);
+/**
+ * ASCII hashing.
+ */
+word32 *hash_test(word32 *hash, word8 *message);
+
+/**
+ * Prints a hash.
+ */
+void print_hash(word32 *hash);
+
+// abd
+const word32 SEC0[] = {0xa52d159f, 0x262b2c6d, 0xdb724a61, 0x840befc3, 0x6eb30c88, 0x877a4030, 0xb65cbe86, 0x298449c9};
+// ???
+const word32 SEC1[] = {0x23D46EF4, 0x374DB1E8, 0x3A8ECB77, 0xA99BA9D1, 0x2835D911, 0xFF8915C4, 0xD20E4A71, 0xAE179DFD};
+
+int main() {
+    // brute force a string
+    find_all_strings(10, SEC1);
+
+//    // calculate a hash
+//    word32 *hash = malloc(sizeof(int32_t) * 8);
+//    print_hash(hash_test(hash, (word8 *) "abd"));
+//    free(hash);
+}
+
+word32 *hash_test(word32 *hash, word8 *message) {
+    /*
+     * Pre processing
+     */
+    // append 0b10000000 to message
+    word32 nrof_words8 = strlen((const char *) message);
+    word8 *data = (word8 *) malloc(nrof_words8 + 1);
+
     for (int i = 0; i < nrof_words8; i++) {
-        data[i] = (uint8_t) message[i];
+        data[i] = (word8) message[i];
     }
     data[nrof_words8] = 0x80;
 
     // nrof_words8 includes the padded 0b10000000
     nrof_words8 = nrof_words8 + 1;
 
+    // number of blocks required
     word64 nrof_blocks = (nrof_words8 * BITS_IN_WORD8 + BITS_IN_WORD64 - 1) / BITS_IN_BLOCK + 1;
-    printf("nrof_blocks: %llu\n\n", nrof_blocks);
 
-    // for all bits
     block blocks[nrof_blocks];
 
     for (word32 i = 0; i < nrof_blocks; i++) {
@@ -84,6 +117,7 @@ int main() {
             >> BITS_IN_WORD32);
     blocks[nrof_blocks - 1][WORDS32_IN_BLOCK - 1] = (word32) ((nrof_words8 - 1) * BITS_IN_WORD8);
 
+#ifdef DEBUG
     // prints blocks
     for (word32 i = 0; i < nrof_blocks; i++) {
         printf("preprocessed hexadecimal improvement (%d):\n", i);
@@ -92,6 +126,7 @@ int main() {
             if ((n + 1) % (WORDS32_IN_BLOCK / 2) == 0) printf("\n");
         }
     }
+#endif
 
     /*
      * Processing
@@ -143,7 +178,7 @@ int main() {
         for (word32 i = WORDS32_IN_BLOCK; i < WORDS32_IN_M_BLOCK; i++) {
             W[i] = sigma_1(W[i - 2]) + W[i - 7] + sigma_0(W[i - 15]) + W[i - 16];
         }
-        printf("\n");
+
         // 64 rounds
         a = h_0;
         b = h_1;
@@ -153,8 +188,8 @@ int main() {
         f = h_5;
         g = h_6;
         h = h_7;
-        for (word32 i = 0; i < 64; i++) {
 
+        for (word32 i = 0; i < 64; i++) {
             word32 T1 = h + big_sigma_1(e) + ch(e, f, g) + K[i] + W[i];
             word32 T2 = big_sigma_0(a) + maj(a, b, c);
             h = g;
@@ -177,19 +212,69 @@ int main() {
         h_7 = h_7 + h;
     }
 
-    // print hash
-    printf("processed hexadecimal:\n");
-    printf("%08x ", h_0);
-    printf("%08x ", h_1);
-    printf("%08x ", h_2);
-    printf("%08x ", h_3);
-    printf("%08x ", h_4);
-    printf("%08x ", h_5);
-    printf("%08x ", h_6);
-    printf("%08x ", h_7);
-    printf("\n");
+    hash[0] = h_0;
+    hash[1] = h_1;
+    hash[2] = h_2;
+    hash[3] = h_3;
+    hash[4] = h_4;
+    hash[5] = h_5;
+    hash[6] = h_6;
+    hash[7] = h_7;
 
-    return 0;
+    free(data);
+
+    return hash;
+}
+
+void find_string(word32 index, const word32 MAX_LEN, word8 *data, const word32 *secret, word32 *done) {
+    if (!*done) {
+        if (index >= MAX_LEN) {
+            word32 *hash = malloc(sizeof(word32) * 8);
+            hash_test(hash, data);
+            *done = 1;
+            for (int i = 0; i < 8; i++) {
+                if (hash[i] != secret[i]) {
+                    *done = 0;
+                    break;
+                }
+            }
+            if (*done) {
+                printf("secret found: %s", data);
+            }
+            free(hash);
+        } else {
+            for (int i = ASCII_VALUES_START; i < NROF_ASCII_VALUES; i++) {
+                data[index] = (word8) i;
+                find_string(index + 1, MAX_LEN, data, secret, done);
+            }
+        }
+    }
+}
+
+void find_all_strings(const word32 MAX_LEN, const word32 *secret) {
+    const word32 MIN_STRING_LEN = 1;
+    word8 *data;
+    word32 *done = malloc(sizeof(word32));
+    *done = 0;
+    for (word32 i = MIN_STRING_LEN; i < MIN_STRING_LEN + MAX_LEN; i++) {
+        data = (word8 *) malloc(i + 1);
+        data[i] = (word8) 0; // null terminator
+        find_string(0, i, data, secret, done);
+        free(data);
+
+        if (*done) {
+            break;
+        }
+
+        printf("done with %u\n", i);
+    }
+}
+
+void print_hash(word32 *hash) {
+    for (int32_t i = 0; i < 8; i++) {
+        printf("%08x ", hash[i]);
+    }
+    printf("\n");
 }
 
 inline word32 rotr(word32 x, word32 n) {
