@@ -2,6 +2,7 @@
 #include <stdint.h> // uint32_t and uint64_t
 #include <mem.h> // strlen
 #include <stdlib.h> // malloc
+#include <time.h> // clock
 
 #define WORDS8_IN_WORD32 4
 
@@ -15,11 +16,20 @@
 #define WORDS32_IN_BLOCK 16
 #define BITS_IN_BLOCK 512
 
+#define WORD32_IN_HASH 8
+
 // first ascii character to try
 #define ASCII_VALUES_START 33
 #define NROF_ASCII_VALUES 128
 
+#define FIRST_LOWER_LETTER_VALUE 97
+#define LAST_LOWER_LETTER_VALUE 122
+
+#define FIRST_UPPER_LETTER_VALUE 65
+#define LAST_UPPER_LETTER_VALUE 90
+
 //#define DEBUG 0
+#define LETTERS_ONLY 0
 
 typedef uint8_t word8;
 typedef uint32_t word32;
@@ -51,7 +61,7 @@ void find_all_strings(const word32 MAX_LEN, const word32 *secret);
 /**
  * Finds all permutations of a string of a fixed length.
  */
-void find_string(word32 index, const word32 MAX_LEN, word8 *data, const word32 *secret, word32 *done);
+void find_string(word32 index, const word32 MAX_LEN, word8 *data, const word32 *secret, word32 *done, word32 *hash);
 
 /**
  * ASCII hashing.
@@ -69,13 +79,19 @@ const word32 SEC0[] = {0xa52d159f, 0x262b2c6d, 0xdb724a61, 0x840befc3, 0x6eb30c8
 const word32 SEC1[] = {0x23D46EF4, 0x374DB1E8, 0x3A8ECB77, 0xA99BA9D1, 0x2835D911, 0xFF8915C4, 0xD20E4A71, 0xAE179DFD};
 
 int main() {
+    clock_t start, end;
+    start = clock();
+
     // brute force a string
     find_all_strings(10, SEC1);
 
 //    // calculate a hash
 //    word32 *hash = malloc(sizeof(int32_t) * 8);
-//    print_hash(hash_test(hash, (word8 *) "abd"));
+//    print_hash(hash_test(hash, (word8 *) "abcd"));
 //    free(hash);
+
+    end = clock();
+    printf("cycles: %li\n", end - start);
 }
 
 word32 *hash_test(word32 *hash, word8 *message) {
@@ -131,14 +147,9 @@ word32 *hash_test(word32 *hash, word8 *message) {
     /*
      * Processing
      */
-    const word32 h_0_0 = 0x6a09e667;
-    const word32 h_1_0 = 0xbb67ae85;
-    const word32 h_2_0 = 0x3c6ef372;
-    const word32 h_3_0 = 0xa54ff53a;
-    const word32 h_4_0 = 0x510e527f;
-    const word32 h_5_0 = 0x9b05688c;
-    const word32 h_6_0 = 0x1f83d9ab;
-    const word32 h_7_0 = 0x5be0cd19;
+    const word32 H[8] = {0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a,
+                         0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19
+    };
 
     const word32 K[64] = {
             0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,
@@ -151,23 +162,16 @@ word32 *hash_test(word32 *hash, word8 *message) {
             0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2
     };
 
-    word32 h_0 = h_0_0;
-    word32 h_1 = h_1_0;
-    word32 h_2 = h_2_0;
-    word32 h_3 = h_3_0;
-    word32 h_4 = h_4_0;
-    word32 h_5 = h_5_0;
-    word32 h_6 = h_6_0;
-    word32 h_7 = h_7_0;
+    hash[0] = H[0];
+    hash[1] = H[1];
+    hash[2] = H[2];
+    hash[3] = H[3];
+    hash[4] = H[4];
+    hash[5] = H[5];
+    hash[6] = H[6];
+    hash[7] = H[7];
 
-    word32 a;
-    word32 b;
-    word32 c;
-    word32 d;
-    word32 e;
-    word32 f;
-    word32 g;
-    word32 h;
+    word32 a, b, c, d, e, f, g, h;
 
     for (word32 t = 0; t < nrof_blocks; t++) {
         // prepare block
@@ -180,18 +184,19 @@ word32 *hash_test(word32 *hash, word8 *message) {
         }
 
         // 64 rounds
-        a = h_0;
-        b = h_1;
-        c = h_2;
-        d = h_3;
-        e = h_4;
-        f = h_5;
-        g = h_6;
-        h = h_7;
+        a = hash[0];
+        b = hash[1];
+        c = hash[2];
+        d = hash[3];
+        e = hash[4];
+        f = hash[5];
+        g = hash[6];
+        h = hash[7];
 
+        word32 T1, T2;
         for (word32 i = 0; i < 64; i++) {
-            word32 T1 = h + big_sigma_1(e) + ch(e, f, g) + K[i] + W[i];
-            word32 T2 = big_sigma_0(a) + maj(a, b, c);
+            T1 = h + big_sigma_1(e) + ch(e, f, g) + K[i] + W[i];
+            T2 = big_sigma_0(a) + maj(a, b, c);
             h = g;
             g = f;
             f = e;
@@ -202,51 +207,51 @@ word32 *hash_test(word32 *hash, word8 *message) {
             a = T1 + T2;
         }
 
-        h_0 = h_0 + a;
-        h_1 = h_1 + b;
-        h_2 = h_2 + c;
-        h_3 = h_3 + d;
-        h_4 = h_4 + e;
-        h_5 = h_5 + f;
-        h_6 = h_6 + g;
-        h_7 = h_7 + h;
+        hash[0] = hash[0] + a;
+        hash[1] = hash[1] + b;
+        hash[2] = hash[2] + c;
+        hash[3] = hash[3] + d;
+        hash[4] = hash[4] + e;
+        hash[5] = hash[5] + f;
+        hash[6] = hash[6] + g;
+        hash[7] = hash[7] + h;
     }
-
-    hash[0] = h_0;
-    hash[1] = h_1;
-    hash[2] = h_2;
-    hash[3] = h_3;
-    hash[4] = h_4;
-    hash[5] = h_5;
-    hash[6] = h_6;
-    hash[7] = h_7;
 
     free(data);
 
     return hash;
 }
 
-void find_string(word32 index, const word32 MAX_LEN, word8 *data, const word32 *secret, word32 *done) {
+void find_string(word32 index, const word32 MAX_LEN, word8 *data, const word32 *secret, word32 *done, word32 *hash) {
     if (!*done) {
         if (index >= MAX_LEN) {
-            word32 *hash = malloc(sizeof(word32) * 8);
             hash_test(hash, data);
             *done = 1;
-            for (int i = 0; i < 8; i++) {
+            for (int i = 0; i < WORD32_IN_HASH; i++) {
                 if (hash[i] != secret[i]) {
                     *done = 0;
                     break;
                 }
             }
             if (*done) {
-                printf("secret found: %s", data);
+                printf("secret found: %s\n", data);
             }
-            free(hash);
         } else {
+#ifdef LETTERS_ONLY
+            for (int i = FIRST_UPPER_LETTER_VALUE; i < LAST_UPPER_LETTER_VALUE + 1; i++) {
+                data[index] = (word8) i;
+                find_string(index + 1, MAX_LEN, data, secret, done, hash);
+            }
+            for (int i = FIRST_LOWER_LETTER_VALUE; i < LAST_LOWER_LETTER_VALUE + 1; i++) {
+                data[index] = (word8) i;
+                find_string(index + 1, MAX_LEN, data, secret, done, hash);
+            }
+#else
             for (int i = ASCII_VALUES_START; i < NROF_ASCII_VALUES; i++) {
                 data[index] = (word8) i;
-                find_string(index + 1, MAX_LEN, data, secret, done);
+                find_string(index + 1, MAX_LEN, data, secret, done, hash);
             }
+#endif
         }
     }
 }
@@ -254,12 +259,13 @@ void find_string(word32 index, const word32 MAX_LEN, word8 *data, const word32 *
 void find_all_strings(const word32 MAX_LEN, const word32 *secret) {
     const word32 MIN_STRING_LEN = 1;
     word8 *data;
+    word32 *hash = malloc(sizeof(word32) * 8);
     word32 *done = malloc(sizeof(word32));
     *done = 0;
     for (word32 i = MIN_STRING_LEN; i < MIN_STRING_LEN + MAX_LEN; i++) {
         data = (word8 *) malloc(i + 1);
         data[i] = (word8) 0; // null terminator
-        find_string(0, i, data, secret, done);
+        find_string(0, i, data, secret, done, hash);
         free(data);
 
         if (*done) {
@@ -268,10 +274,12 @@ void find_all_strings(const word32 MAX_LEN, const word32 *secret) {
 
         printf("done with %u\n", i);
     }
+    free(done);
+    free(hash);
 }
 
 void print_hash(word32 *hash) {
-    for (int32_t i = 0; i < 8; i++) {
+    for (word32 i = 0; i < 8; i++) {
         printf("%08x ", hash[i]);
     }
     printf("\n");
