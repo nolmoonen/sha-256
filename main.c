@@ -13,7 +13,7 @@
 #define BITS_IN_WORD64 64
 
 #define WORDS8_IN_BLOCK 64
-#define WORDS32_IN_BLOCK 16
+#define WORD32_IN_BLOCK 16
 #define BITS_IN_BLOCK 512
 
 #define WORD32_IN_HASH 8
@@ -28,14 +28,14 @@
 #define FIRST_UPPER_LETTER_VALUE 65
 #define LAST_UPPER_LETTER_VALUE 90
 
-//#define DEBUG 0
-#define LETTERS_ONLY 0
+//#define DEBUG
+#define LETTERS_ONLY
 
 typedef uint8_t word8;
 typedef uint32_t word32;
 typedef uint64_t word64;
 
-typedef word32 block[WORDS32_IN_BLOCK];
+typedef word32 block[WORD32_IN_BLOCK];
 
 word32 rotr(word32 x, word32 n);
 
@@ -87,7 +87,7 @@ int main() {
 
 //    // calculate a hash
 //    word32 *hash = malloc(sizeof(int32_t) * 8);
-//    print_hash(hash_test(hash, (word8 *) "abcd"));
+//    print_hash(hash_test(hash, (word8 *) "abcdaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"));
 //    free(hash);
 
     end = clock();
@@ -98,53 +98,39 @@ word32 *hash_test(word32 *hash, word8 *message) {
     /*
      * Pre processing
      */
-    // append 0b10000000 to message
+    // length of message
     word32 nrof_words8 = strlen((const char *) message);
 
     // number of blocks required
-    word32 nrof_blocks = (nrof_words8 * BITS_IN_WORD8 + BITS_IN_WORD64 - 1) / BITS_IN_BLOCK + 1;
-
-    word32 nrof_bytes_all_blocks = nrof_blocks * 64;
-    word8 *data = (word8 *) malloc(nrof_bytes_all_blocks);
-
-    // set message
-    for (word32 i = 0; i < nrof_words8; i++) {
-        data[i] = (word8) message[i];
-    }
-    // set special character
-    data[nrof_words8] = 0x80;
-    // set remainder to 0
-    for (word32 i = nrof_words8 + 1; i < nrof_bytes_all_blocks; i++) {
-        data[i] = 0;
-    }
-
-    // nrof_words8 includes the padded 0b10000000
-    nrof_words8 = nrof_words8 + 1;
+    word64 nrof_blocks = (nrof_words8 * BITS_IN_WORD8 + 1 + BITS_IN_WORD64 - 1) / BITS_IN_BLOCK + 1;
 
     block blocks[nrof_blocks];
 
     for (word32 i = 0; i < nrof_blocks; i++) {
-        for (word32 j = 0; j < WORDS32_IN_BLOCK; j++) {
+        for (word32 j = 0; j < WORD32_IN_BLOCK; j++) {
             blocks[i][j] = 0;
             for (word32 k = 0; k < WORDS8_IN_WORD32; k++) {
                 word32 word8_index = i * WORDS8_IN_BLOCK + j * WORDS8_IN_WORD32 + k;
-                word32 temp = (((word32) data[word8_index]) << (BITS_IN_WORD8 * (WORDS8_IN_WORD32 - k - 1)));
-                blocks[i][j] = blocks[i][j] | temp;
+                if (word8_index < nrof_words8) {
+                    blocks[i][j] |= (((word32) message[word8_index]) << (BITS_IN_WORD8 * (WORDS8_IN_WORD32 - k - 1)));
+                }
             }
         }
     }
 
-    blocks[nrof_blocks - 1][WORDS32_IN_BLOCK - 2] = (word32) (((word64) ((nrof_words8 - 1) * BITS_IN_WORD8))
+    word32 temp = (((word32) 0x80) << (BITS_IN_WORD8 * (WORDS8_IN_WORD32 - (nrof_words8 % 4) - 1)));
+    blocks[nrof_words8 / WORDS8_IN_BLOCK][nrof_words8 / 4] |= temp;
+    blocks[nrof_blocks - 1][WORD32_IN_BLOCK - 2] = (word32) (((word64) (nrof_words8 * BITS_IN_WORD8))
             >> BITS_IN_WORD32);
-    blocks[nrof_blocks - 1][WORDS32_IN_BLOCK - 1] = (word32) ((nrof_words8 - 1) * BITS_IN_WORD8);
+    blocks[nrof_blocks - 1][WORD32_IN_BLOCK - 1] = (word32) (nrof_words8 * BITS_IN_WORD8);
 
 #ifdef DEBUG
     // prints blocks
     for (word32 i = 0; i < nrof_blocks; i++) {
         printf("preprocessed hexadecimal improvement (%d):\n", i);
-        for (word32 n = 0; n < WORDS32_IN_BLOCK; n++) {
+        for (word32 n = 0; n < WORD32_IN_BLOCK; n++) {
             printf("%08x ", blocks[i][n]);
-            if ((n + 1) % (WORDS32_IN_BLOCK / 2) == 0) printf("\n");
+            if ((n + 1) % (WORD32_IN_BLOCK / 2) == 0) printf("\n");
         }
     }
 #endif
@@ -181,10 +167,10 @@ word32 *hash_test(word32 *hash, word8 *message) {
     for (word32 t = 0; t < nrof_blocks; t++) {
         // prepare block
         word32 W[WORDS32_IN_M_BLOCK];
-        for (word32 i = 0; i < WORDS32_IN_BLOCK; i++) {
+        for (word32 i = 0; i < WORD32_IN_BLOCK; i++) {
             W[i] = blocks[t][i];
         }
-        for (word32 i = WORDS32_IN_BLOCK; i < WORDS32_IN_M_BLOCK; i++) {
+        for (word32 i = WORD32_IN_BLOCK; i < WORDS32_IN_M_BLOCK; i++) {
             W[i] = sigma_1(W[i - 2]) + W[i - 7] + sigma_0(W[i - 15]) + W[i - 16];
         }
 
@@ -222,7 +208,7 @@ word32 *hash_test(word32 *hash, word8 *message) {
         hash[7] = hash[7] + h;
     }
 
-    free(data);
+//    free(data);
 
     return hash;
 }
