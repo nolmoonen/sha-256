@@ -3,6 +3,7 @@
 #include <mem.h> // strlen
 #include <stdlib.h> // malloc
 #include <time.h> // clock
+#include <windows.h>
 
 #define WORDS8_IN_WORD32 4
 
@@ -18,9 +19,12 @@
 
 #define WORD32_IN_HASH 8
 
-// first ascii character to try
-#define ASCII_VALUES_START 33
-#define NROF_ASCII_VALUES 128
+//#define DEBUG
+#define LETTERS_ONLY
+#define USE_THREADS
+
+#ifdef LETTERS_ONLY
+#define NROF_LETTERS 26
 
 #define FIRST_LOWER_LETTER_VALUE 97
 #define LAST_LOWER_LETTER_VALUE 122
@@ -28,8 +32,16 @@
 #define FIRST_UPPER_LETTER_VALUE 65
 #define LAST_UPPER_LETTER_VALUE 90
 
-//#define DEBUG
-#define LETTERS_ONLY
+#ifdef USE_THREADS
+// should be a multiplicity of 2
+#define NROF_THREADS 6
+#endif
+#else
+// first ascii character to try
+#define ASCII_VALUES_START 33
+#define NROF_ASCII_VALUES 128
+#endif
+
 
 typedef uint8_t word8;
 typedef uint32_t word32;
@@ -53,15 +65,25 @@ word32 ch(word32 x, word32 y, word32 z);
 
 word32 maj(word32 x, word32 y, word32 z);
 
+struct MyData {
+    uint32_t start_char; // decimal value of first ASCII character to try
+    uint32_t nrof_chars; // number of characters to try
+    word32 MAX_LEN; // maximum length of secret
+    const word32 *secret; // hashed secret
+    uint32_t *done;
+    CRITICAL_SECTION BufferLock;
+};
+
 /**
  * Find all strings up to a certain max_length.
  */
-void find_all_strings(const word32 MAX_LEN, const word32 *secret);
+void find_all_strings(struct MyData *myData);
 
 /**
  * Finds all permutations of a string of a fixed length.
  */
-void find_string(word32 index, const word32 MAX_LEN, word8 *data, const word32 *secret, word32 *done, word32 *hash);
+void find_string(word32 index, const word32 MAX_LEN, word8 *data, const word32 *secret, word32 *done, word32 *hash,
+                 struct MyData *myData);
 
 /**
  * ASCII hashing.
@@ -78,12 +100,14 @@ const word32 SEC0[] = {0xa52d159f, 0x262b2c6d, 0xdb724a61, 0x840befc3, 0x6eb30c8
 // ???
 const word32 SEC1[] = {0x23D46EF4, 0x374DB1E8, 0x3A8ECB77, 0xA99BA9D1, 0x2835D911, 0xFF8915C4, 0xD20E4A71, 0xAE179DFD};
 
+int test(const word32 MAX_LEN, const word32 *secret);
+
 int main() {
     clock_t start, end;
     start = clock();
 
     // brute force a string
-    find_all_strings(10, SEC0);
+    test(10, SEC1);
 
 //    // calculate a hash
 //    word32 *hash = malloc(sizeof(int32_t) * 8);
@@ -213,50 +237,169 @@ word32 *hash_test(word32 *hash, word8 *message) {
     return hash;
 }
 
-void find_string(word32 index, const word32 MAX_LEN, word8 *data, const word32 *secret, word32 *done, word32 *hash) {
-    if (!*done) {
+void find_string(word32 index, const word32 MAX_LEN, word8 *data, const word32 *secret, word32 *done, word32 *hash,
+                 struct MyData *myData) {
+    uint32_t global_done;
+    EnterCriticalSection(&(myData->BufferLock));
+    global_done = *done;
+    LeaveCriticalSection(&(myData->BufferLock));
+    if (!global_done) {
         if (index >= MAX_LEN) {
             hash_test(hash, data);
-            *done = 1;
+            uint32_t local_done = 1;
             for (int i = 0; i < WORD32_IN_HASH; i++) {
                 if (hash[i] != secret[i]) {
-                    *done = 0;
+                    local_done = 0;
                     break;
                 }
             }
-            if (*done) {
+            if (local_done) {
                 printf("secret found: %s\n", data);
+                *done = 1;
             }
         } else {
 #ifdef LETTERS_ONLY
             for (int i = FIRST_UPPER_LETTER_VALUE; i < LAST_UPPER_LETTER_VALUE + 1; i++) {
                 data[index] = (word8) i;
-                find_string(index + 1, MAX_LEN, data, secret, done, hash);
+                find_string(index + 1, MAX_LEN, data, secret, done, hash, myData);
             }
             for (int i = FIRST_LOWER_LETTER_VALUE; i < LAST_LOWER_LETTER_VALUE + 1; i++) {
                 data[index] = (word8) i;
-                find_string(index + 1, MAX_LEN, data, secret, done, hash);
+                find_string(index + 1, MAX_LEN, data, secret, done, hash, myData);
             }
 #else
             for (int i = ASCII_VALUES_START; i < NROF_ASCII_VALUES; i++) {
                 data[index] = (word8) i;
-                find_string(index + 1, MAX_LEN, data, secret, done, hash);
+                find_string(index + 1, MAX_LEN, data, secret, done, hash, myData);
             }
 #endif
         }
     }
 }
 
-void find_all_strings(const word32 MAX_LEN, const word32 *secret) {
+DWORD WINAPI MyThreadFunction(LPVOID lpParam) {
+    struct MyData *pDataArray;
+
+    // cast void pointer
+    pDataArray = (struct MyData *) lpParam;
+
+    printf("%u, %u, %p, %u\n", pDataArray->start_char, pDataArray->nrof_chars, pDataArray->secret, pDataArray->MAX_LEN);
+
+    ////////////////
+    // do the work
+    const word32 MIN_STRING_LEN = 1;
+    word8 *data;
+    word32 *hash = malloc(sizeof(word32) * 8);
+    uint32_t *done = pDataArray->done;
+    for (word32 i = MIN_STRING_LEN; i < MIN_STRING_LEN + pDataArray->MAX_LEN; i++) {
+        data = (word8 *) malloc(i + 1);
+        data[i] = (word8) 0; // null terminator
+        for (int j = pDataArray->start_char; j < pDataArray->start_char + pDataArray->nrof_chars; j++) {
+            data[0] = (word8) j;
+            find_string(1, i, data, pDataArray->secret, done, hash, pDataArray);
+            if (*done) {
+                break;
+            }
+        }
+        free(data);
+
+        if (*done) {
+            break;
+        }
+    }
+    free(done);
+    free(hash);
+    ////////////////
+
+    return 0;
+}
+
+int test(const word32 MAX_LEN, const word32 *secret) {
+    struct MyData *pDataArray[NROF_THREADS];
+    DWORD dwThreadIdArray[NROF_THREADS];
+    HANDLE hThreadArray[NROF_THREADS];
+    uint32_t *done =  malloc(sizeof(uint32_t));
+    *done = 0;
+    CRITICAL_SECTION BufferLock;
+    InitializeCriticalSection(&BufferLock);
+
+    // create MAX_THREADS worker threads
+    for (uint32_t i = 0; i < NROF_THREADS; i++) {
+        // allocate memory for thread data.
+        pDataArray[i] = (struct MyData *) HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, sizeof(struct MyData));
+
+        if (pDataArray[i] == NULL) {
+            // memory allocation failed
+            ExitProcess(2);
+        }
+
+        // fill data
+        uint32_t range = NROF_LETTERS / (NROF_THREADS / 2);
+        uint32_t last_range = NROF_LETTERS - (NROF_THREADS / 2 - 1) * range;
+        if (i < NROF_THREADS / 2) {
+            pDataArray[i]->start_char = FIRST_UPPER_LETTER_VALUE + i * range;
+            // i is the last part of the upper characters
+            if (i == NROF_THREADS / 2 - 1) {
+                pDataArray[i]->nrof_chars = last_range;
+            } else {
+                pDataArray[i]->nrof_chars = range;
+            }
+        } else {
+            pDataArray[i]->start_char = FIRST_LOWER_LETTER_VALUE + (i % (NROF_THREADS / 2)) * range;
+            // i is the last part of the lower characters
+            if (i == NROF_THREADS - 1) {
+                pDataArray[i]->nrof_chars = last_range;
+            } else {
+                pDataArray[i]->nrof_chars = range;
+            }
+        }
+        pDataArray[i]->MAX_LEN = MAX_LEN;
+        pDataArray[i]->secret = secret;
+        pDataArray[i]->done = done;
+        pDataArray[i]->BufferLock = BufferLock;
+
+        // create thread
+        hThreadArray[i] = CreateThread(
+                NULL,                   // default security attributes
+                0,                      // use default stack size
+                MyThreadFunction,       // thread function name
+                pDataArray[i],          // argument to thread function
+                0,                      // use default creation flags
+                &dwThreadIdArray[i]);   // returns the thread identifier
+
+        if (hThreadArray[i] == NULL) {
+            // thread could not be created
+            ExitProcess(3);
+        }
+    }
+
+    // wait untill all closed
+    WaitForMultipleObjects(NROF_THREADS, hThreadArray, TRUE, INFINITE);
+
+    // close the threads
+    for (int i = 0; i < NROF_THREADS; i++) {
+        CloseHandle(hThreadArray[i]);
+        // free memory allocation
+        if (pDataArray[i] != NULL) {
+            HeapFree(GetProcessHeap(), 0, pDataArray[i]);
+            pDataArray[i] = NULL;
+        }
+    }
+
+    return 0;
+}
+
+
+void find_all_strings(struct MyData *myData) {
     const word32 MIN_STRING_LEN = 1;
     word8 *data;
     word32 *hash = malloc(sizeof(word32) * 8);
     word32 *done = malloc(sizeof(word32));
     *done = 0;
-    for (word32 i = MIN_STRING_LEN; i < MIN_STRING_LEN + MAX_LEN; i++) {
+    for (word32 i = MIN_STRING_LEN; i < MIN_STRING_LEN + myData->MAX_LEN; i++) {
         data = (word8 *) malloc(i + 1);
         data[i] = (word8) 0; // null terminator
-        find_string(0, i, data, secret, done, hash);
+        find_string(0, i, data, myData->secret, done, hash, myData);
         free(data);
 
         if (*done) {
