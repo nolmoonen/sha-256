@@ -83,7 +83,7 @@ int main() {
     start = clock();
 
     // brute force a string
-    find_all_strings(10, SEC1);
+    find_all_strings(10, SEC0);
 
 //    // calculate a hash
 //    word32 *hash = malloc(sizeof(int32_t) * 8);
@@ -100,18 +100,26 @@ word32 *hash_test(word32 *hash, word8 *message) {
      */
     // append 0b10000000 to message
     word32 nrof_words8 = strlen((const char *) message);
-    word8 *data = (word8 *) malloc(nrof_words8 + 1);
 
-    for (int i = 0; i < nrof_words8; i++) {
+    // number of blocks required
+    word32 nrof_blocks = (nrof_words8 * BITS_IN_WORD8 + BITS_IN_WORD64 - 1) / BITS_IN_BLOCK + 1;
+
+    word32 nrof_bytes_all_blocks = nrof_blocks * 64;
+    word8 *data = (word8 *) malloc(nrof_bytes_all_blocks);
+
+    // set message
+    for (word32 i = 0; i < nrof_words8; i++) {
         data[i] = (word8) message[i];
     }
+    // set special character
     data[nrof_words8] = 0x80;
+    // set remainder to 0
+    for (word32 i = nrof_words8 + 1; i < nrof_bytes_all_blocks; i++) {
+        data[i] = 0;
+    }
 
     // nrof_words8 includes the padded 0b10000000
     nrof_words8 = nrof_words8 + 1;
-
-    // number of blocks required
-    word64 nrof_blocks = (nrof_words8 * BITS_IN_WORD8 + BITS_IN_WORD64 - 1) / BITS_IN_BLOCK + 1;
 
     block blocks[nrof_blocks];
 
@@ -120,11 +128,8 @@ word32 *hash_test(word32 *hash, word8 *message) {
             blocks[i][j] = 0;
             for (word32 k = 0; k < WORDS8_IN_WORD32; k++) {
                 word32 word8_index = i * WORDS8_IN_BLOCK + j * WORDS8_IN_WORD32 + k;
-                if (word8_index < nrof_words8) {
-                    word32 value = data[word8_index];
-                    word32 temp = (((word32) value) << (BITS_IN_WORD8 * (WORDS8_IN_WORD32 - k - 1)));
-                    blocks[i][j] = blocks[i][j] | temp;
-                }
+                word32 temp = (((word32) data[word8_index]) << (BITS_IN_WORD8 * (WORDS8_IN_WORD32 - k - 1)));
+                blocks[i][j] = blocks[i][j] | temp;
             }
         }
     }
