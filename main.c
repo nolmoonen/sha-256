@@ -2,7 +2,6 @@
 #include <stdint.h> // uint32_t and uint64_t
 #include <mem.h> // strlen
 #include <stdlib.h> // malloc
-#include <time.h> // clock
 
 #define WORDS8_IN_WORD32 4
 
@@ -61,7 +60,7 @@ word8 hex_to_int(char c);
 /**
  * Converts a 64 character hex string (256 bit) into an array of word 32 in little endian.
  */
-word32 *string_to_hash(char *s);
+int string_to_hash(word32 *hash, char *s);
 
 /**
  * Find all strings up to a certain max_length.
@@ -83,27 +82,49 @@ word32 *hash_test(word32 *hash, word8 *message);
  */
 void print_hash(word32 *hash);
 
-// abd
-const word32 SEC0[] = {0xa52d159f, 0x262b2c6d, 0xdb724a61, 0x840befc3, 0x6eb30c88, 0x877a4030, 0xb65cbe86, 0x298449c9};
-// ???
-const word32 SEC1[] = {0x23D46EF4, 0x374DB1E8, 0x3A8ECB77, 0xA99BA9D1, 0x2835D911, 0xFF8915C4, 0xD20E4A71, 0xAE179DFD};
-
 int main() {
-    clock_t start, end;
-    start = clock();
+    int *mode = malloc(sizeof(int));
 
-    // brute force a string
-    find_all_strings(10, SEC0);
+    int *cont = malloc(sizeof(int));
+    *cont = 1;
 
-    find_all_strings(10, string_to_hash("106a5842fc5fce6f663176285ed1516dbb1e3d15c05abab12fdca46d60b539b7"));
+    while (*cont) {
+        printf("0 for hashing, 1 for dehashing: ");
+        scanf("%d", mode);
 
-//    // calculate a hash
-//    word32 *hash = malloc(sizeof(int32_t) * 8);
-//    print_hash(hash_test(hash, (word8 *) "abcdaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"));
-//    free(hash);
+        switch (*mode) {
+            case 0: {
+                // calculate a hash
+                char *string = (char *) malloc(64 + 1);
+                printf("put in a secret (at most 64 characters): ");
+                scanf("%s", string);
 
-    end = clock();
-    printf("cycles: %li\n", end - start);
+                word32 *hash = (word32 *) malloc(sizeof(word32) * 8);
+                print_hash(hash_test(hash, (word8 *) string));
+                free(hash);
+                break;
+            }
+            case 1: {
+                // brute force a string
+                word32 *hash = (word32 *) malloc(sizeof(word32) * 8);
+                char *string = (char *) malloc(64 + 1);
+                printf("put in a hash (64 characters): ");
+                scanf("%s", string);
+
+                string_to_hash(hash, string);
+                find_all_strings(10, hash);
+                free(hash);
+                break;
+            }
+            default:
+                printf("please use provided format\n");
+        }
+
+        printf("0 for stop, 1 for continue: ");
+        scanf("%d", cont);
+    }
+
+    free(cont);
 }
 
 word8 hex_to_int(char c) {
@@ -157,18 +178,16 @@ word8 hex_to_int(char c) {
     return 16;
 }
 
-word32 *string_to_hash(char *s) {
-    word32 *result = (word32 *) malloc(sizeof(word32) * 8);
+int string_to_hash(word32 *hash, char *s) {
+    for (word32 i = 0; i < 8; i++) {
+        hash[i] = 0;
 
-    for(word32 i = 0; i < 8; i++) {
-        result[i] = 0;
-
-        for(word32 j = 0; j < 8; j++) {
-            result[i] |= (hex_to_int(s[i * 8 + (7 - j)])) << (j * 4);
+        for (word32 j = 0; j < 8; j++) {
+            hash[i] |= (hex_to_int(s[i * 8 + (7 - j)])) << (j * 4);
         }
     }
 
-    return result;
+    return 0;
 }
 
 word32 *hash_test(word32 *hash, word8 *message) {
