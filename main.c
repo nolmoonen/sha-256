@@ -54,6 +54,16 @@ word32 ch(word32 x, word32 y, word32 z);
 word32 maj(word32 x, word32 y, word32 z);
 
 /**
+ * Converts a hex character into an integer value.
+ */
+word8 hex_to_int(char c);
+
+/**
+ * Converts a 64 character hex string (256 bit) into an array of word 32 in little endian.
+ */
+word32 *string_to_hash(char *s);
+
+/**
  * Find all strings up to a certain max_length.
  */
 void find_all_strings(const word32 MAX_LEN, const word32 *secret);
@@ -85,6 +95,8 @@ int main() {
     // brute force a string
     find_all_strings(10, SEC0);
 
+    find_all_strings(10, string_to_hash("106a5842fc5fce6f663176285ed1516dbb1e3d15c05abab12fdca46d60b539b7"));
+
 //    // calculate a hash
 //    word32 *hash = malloc(sizeof(int32_t) * 8);
 //    print_hash(hash_test(hash, (word8 *) "abcdaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"));
@@ -92,6 +104,71 @@ int main() {
 
     end = clock();
     printf("cycles: %li\n", end - start);
+}
+
+word8 hex_to_int(char c) {
+    switch (c) {
+        case '0':
+            return 0;
+        case '1':
+            return 1;
+        case '2':
+            return 2;
+        case '3':
+            return 3;
+        case '4':
+            return 4;
+        case '5':
+            return 5;
+        case '6':
+            return 6;
+        case '7':
+            return 7;
+        case '8':
+            return 8;
+        case '9':
+            return 9;
+        case 'A':
+            return 10;
+        case 'B':
+            return 11;
+        case 'C':
+            return 12;
+        case 'D':
+            return 13;
+        case 'E':
+            return 14;
+        case 'F':
+            return 15;
+        case 'a':
+            return 10;
+        case 'b':
+            return 11;
+        case 'c':
+            return 12;
+        case 'd':
+            return 13;
+        case 'e':
+            return 14;
+        case 'f':
+            return 15;
+    }
+
+    return 16;
+}
+
+word32 *string_to_hash(char *s) {
+    word32 *result = (word32 *) malloc(sizeof(word32) * 8);
+
+    for(word32 i = 0; i < 8; i++) {
+        result[i] = 0;
+
+        for(word32 j = 0; j < 8; j++) {
+            result[i] |= (hex_to_int(s[i * 8 + (7 - j)])) << (j * 4);
+        }
+    }
+
+    return result;
 }
 
 word32 *hash_test(word32 *hash, word8 *message) {
